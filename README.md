@@ -1,83 +1,73 @@
 # NFL Game Outcome Predictor
 
-Predicts NFL game outcomes (winner + point spread) using historical play-by-play
-and schedule data. Built as an end-to-end pipeline: data ingestion → feature
-engineering → model training/evaluation → API → dashboard.
+I built this to predict NFL game outcomes (who wins + by how much) using every team's recent form. I structured it as an actual pipeline (pull data, build features, train models, give out predictions) because I wanted it to look and work like something you'd actually maintain and be able to use for a long time.
 
-## Why this project
+Live demo:(https://nfl-game-predictor-z937zdjujcfgakshse4yxb.streamlit.app/)
+Repo: https://github.com/ElijahB211/NFL-Game-Predictor
 
-Most "sports prediction" projects stop at a notebook with an accuracy score.
-This one is structured like production software: modular pipeline, tested
-data logic, a served model (FastAPI), and a small dashboard on top — while
-still being honest about a hard problem (NFL games are genuinely hard to
-predict; beating a simple baseline is the real bar).
+## Results
 
-## Project structure
+I tested this on 570 games from the 2024 and 2025 seasons that the model never saw during training.
+
+- Guessing the home team wins every time: 54.0% accuracy
+- My model: 63.9% accuracy
+- Vegas closing lines: 68.3% accuracy
+
+Getting this close to a line from vegas is somewhat an accomplishment from this project. I didn't want to make this be 100% accuracy because I know that would be impossible.
+
+## What's actually in here
+
+Two tabs in the dashboard:
+
+1. A historical games view. You pick any season within the last 10 years, see real games with my model's predictions next to what actually happened and what Vegas had the line at.
+2. A "try a matchup" tab which is my plan to be the favorite part of this. Here, you pick two teams and it predicts the outcome using their actual recent scoring form. This can be used to have the edge on friends if you plan on making fun bets.
+
+## How it's organized
 
 ```
-nfl-predictor/
-├── src/
-│   ├── data/         # pulling raw data from nfl_data_py, caching locally
-│   ├── features/     # turning raw games/pbp into model-ready feature rows
-│   ├── models/        # training, evaluation, baseline comparison
-│   └── api/           # FastAPI app serving predictions
-├── tests/             # unit tests for data + feature logic
-├── notebooks/          # exploration only — not where the "real" logic lives
-├── data/raw/           # downloaded data (gitignored)
-└── data/processed/    # cleaned feature tables (gitignored)
+src/
+  data/         - pulls raw data and caches it locally
+  features/     - turns raw games into features the model can use
+  models/       - trains and evaluates the models
+  api/          - a small FastAPI endpoint if you want predictions outside the dashboard
+  dashboard.py  - the actual Streamlit app
+tests/          - a few unit tests, mostly checking I'm not leaking future data into training
 ```
 
-## Setup
+## Running it yourself
 
-```bash
+```
 python3 -m venv venv
-source venv/bin/activate       # Windows: venv\Scripts\activate
+source venv/bin/activate
 pip install -r requirements.txt
-```
 
-> **Known gotcha:** on some systems, `nfl_data_py` fails to install with a
-> `ModuleNotFoundError: No module named 'pkg_resources'` error during build.
-> Fix with `pip install "setuptools<81"` before installing requirements.
-
-## Usage
-
-```bash
-# 1. Pull and cache raw data (schedules + team stats, 2015-2025)
 python -m src.data.ingest
-
-# 2. Build the feature table
 python -m src.features.build_features
-
-# 3. Train and evaluate models
 python -m src.models.train
-
-# 4. Serve predictions via API
-uvicorn src.api.main:app --reload
-
-# 5. Run the dashboard
 streamlit run src/dashboard.py
 ```
 
-## Baseline
+## Updating it during the season
 
-The model is evaluated against two baselines:
-1. **Always predict home team wins** (home field advantage alone)
-2. **Vegas closing spread** (the actual bar to beat — this is hard to beat
-   and that's fine; the point is to show you understand this is the real
-   benchmark, not just "better than a coin flip")
+Unfortunately, nothing auto-refreshes. If you want current data during the season, you rerun the three commands above (ingest, build_features, train) I'd say once a week is reasonable, Thursdays work well since that's usually after that week's stat corrections are finalized. The ingest script pulls whatever years are available automatically and just skips a season/week if it's not published yet instead of crashing.
 
 ## Data source
 
-[`nfl_data_py`](https://github.com/nflverse/nfl_data_py) — free, no API key,
-pulls from the nflverse project (play-by-play, schedules, rosters, betting
-lines going back to 1999).
+This uses nflreadpy, which is free and pulls from the nflverse project. I originally built this on an older package called nfl_data_py, but that's been officially deprecated, so partway through I migrated everything over to nflreadpy. That actually fixed a real problem I was having — the older package wasn't returning the most recent season's data at all.
 
-## Status / Roadmap
+## Things this doesn't do well (and I think that's worth saying plainly)
 
-- [ ] Data ingestion pipeline
-- [ ] Feature engineering (rolling team stats, rest days, home/away, etc.)
-- [ ] Baseline models (logistic regression)
-- [ ] Better models (XGBoost) + evaluation vs. Vegas lines
-- [ ] FastAPI serving endpoint
-- [ ] Streamlit dashboard
-- [ ] Deployed demo link
+- It has no idea who's actually on a team's roster. It only sees points scored and allowed. If a team got way better in the offseason because of a trade or a draft pick, the model won't know that until a few real games have been played.
+- The very start of a new season is the weakest spot. Before a team has played any games yet, I have it fall back to their full average from the previous season instead of a shaky 4 game window from months ago, which helps, but it's still not as good as real current-season data.
+- I excluded Week 18 from the "recent form" calculation on purpose, a lot of teams that have already secured their spot in the playoffs rest their starters that week, and including it was making some good teams look mediocre.
+- Nothing here updates on its own unfortunately. This isn't a major issue, I just thought too add this in but during the season I will have to manually rerun the pipeline to pull new games.
+
+## Bugs I actually ran into
+
+While testing this, I noticed my "Vegas baseline" accuracy came out to about 29%, which is almost impossible for real professional betting lines. The reason this even happen was because I had the sign backwards on how I was reading the spread column. Also, I noticed the model initially had the Kansas City Chiefs to lose to one of the worst teams which I knew was anohter impossible feature. This is because I did not account for the last week of the season(Week 18) in the last 4 games which was an outliar due to playoff teams resting their starters and not putting up their usual stats. Both were legitimate bugs in my evaluation logic, not just typos, and I only caught them by actually analyzing the results to see if they made sense.
+
+## Built with
+
+Python, pandas, scikit-learn, XGBoost, Streamlit, FastAPI, pytest, nflreadpy, AI assistance for little debug and code review
+
+
