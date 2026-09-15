@@ -1,5 +1,9 @@
 """
-Pull raw NFL data via nfl_data_py and cache it locally as parquet.
+Pull raw NFL data via nflreadpy and cache it locally as parquet.
+
+Uses nflreadpy (the actively maintained successor to nfl_data_py, which
+was officially deprecated). nflreadpy returns Polars DataFrames; we
+convert to pandas immediately so the rest of the pipeline is unchanged.
 
 Running this module directly re-downloads and re-caches everything:
     python -m src.data.ingest
@@ -14,7 +18,7 @@ than crashing the whole run.
 from datetime import date
 from pathlib import Path
 
-import nfl_data_py as nfl
+import nflreadpy as nfl
 import pandas as pd
 
 RAW_DIR = Path(__file__).resolve().parents[2] / "data" / "raw"
@@ -24,29 +28,15 @@ DEFAULT_YEARS = list(range(2015, CURRENT_YEAR + 1))  # e.g. 2015-2026
 
 
 def fetch_schedules(years: list[int] = DEFAULT_YEARS) -> pd.DataFrame:
-    """
-    Schedules include final scores, home/away teams, week, and Vegas
-    closing lines (spread_line, total_line) — everything needed for
-    both the target variable and the baseline comparison. Unlike
-    weekly stats, schedules are published for the whole season (with
-    scores as NaN for games not yet played), so this rarely 404s.
-    """
-    df = nfl.import_schedules(years)
+    df = nfl.load_schedules(years).to_pandas()
     return df
 
 
 def fetch_team_stats(years: list[int] = DEFAULT_YEARS) -> pd.DataFrame:
-    """
-    Weekly team-level stats (points, yards, turnovers, etc.) used to
-    build rolling pre-game features. Fetched ONE YEAR AT A TIME so
-    that a season without published weekly data yet (e.g. the most
-    recent one, early in the year) doesn't fail the entire pipeline —
-    it's just skipped, with a printed note.
-    """
     frames = []
     for year in years:
         try:
-            frames.append(nfl.import_weekly_data([year]))
+            frames.append(nfl.load_player_stats([year]).to_pandas())
         except Exception as e:
             print(f"  Skipping {year} weekly stats (not available yet): {e}")
     if not frames:
@@ -63,8 +53,7 @@ def save(df: pd.DataFrame, name: str) -> Path:
 
 
 def main() -> None:
-    print(f"Fetching schedules {DEFAULT_YEARS[0]}-{DEFAULT_YEARS[-1]} "
-          f"(includes Vegas lines + final scores)...")
+    print(f"Fetching schedules {DEFAULT_YEARS[0]}-{DEFAULT_YEARS[-1]}...")
     schedules = fetch_schedules()
     save(schedules, "schedules")
 
